@@ -1,0 +1,27 @@
+syntax = "proto3";
+package moonsnap;
+option go_package = ".;moonproto";
+
+message Index {
+  message File {
+    string filePath = 1;
+    uint64 fileMode = 2;
+    uint64 fileSize = 3;
+    bytes fileHash = 4;
+    optional string fileLinkTarget = 5;
+  }
+  message Library {
+    string name = 1;
+  }
+  repeated File files = 1;
+  repeated Library libraries = 2;
+}
+
+message LibraryChunk {
+  int64 libraryIndex = 1;
+  uint64 startOffset = 2;
+  uint64 length = 3;
+  repeated int64 fileIndex = 4;
+  repeated uint64 fileOffset = 5; 
+  repeated uint64 fileLibraryChunkLength = 6;
+}
