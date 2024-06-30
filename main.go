@@ -34,14 +34,14 @@ func main() {
 	indexFileName := os.Args[1]
 	outDir := os.Args[2]
 	baseURL := os.Args[3]
-	chunkSize := 4096
+	chunkSize := 8192
 	file, err := os.Open(indexFileName)
 	if err != nil {
 		panic(err)
 	}
 	reader := bufio.NewReader(file)
 	index := moonproto.Index{}
-	err = protodelim.UnmarshalFrom(reader, &index)
+	err = protodelim.UnmarshalOptions{MaxSize: -1}.UnmarshalFrom(reader, &index)
 	if err != nil {
 		panic(err)
 	}
@@ -80,7 +80,7 @@ func main() {
 
 	for {
 		chunk := moonproto.LibraryChunk{}
-		err = protodelim.UnmarshalFrom(reader, &chunk)
+		err = protodelim.UnmarshalOptions{MaxSize: -1}.UnmarshalFrom(reader, &chunk)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -225,9 +225,14 @@ func createFileStructure(index *moonproto.Index, outDir string) int {
 		if err != nil {
 			panic(err)
 		}
-		err = unix.Fallocate(int(f.Fd()), 0, 0, int64(file.FileSize))
-		if err != nil {
-			panic(err)
+
+		//TODO handle 0-byte files (e.g. LOCK)
+		if file.FileSize > 0 {
+			err = unix.Fallocate(int(f.Fd()), 0, 0, int64(file.FileSize))
+			if err != nil {
+				fmt.Printf("path=%s, size=%d\n", file.FilePath, file.FileSize)
+				panic(err)
+			}
 		}
 		err = f.Close()
 		if err != nil {
