@@ -47,7 +47,6 @@ func main() {
 	}
 	totalBytes := createFileStructure(&index, outDir)
 	bar := progressbar.DefaultBytes(int64(totalBytes), "downloading files")
-	bar.Close()
 	fileCache, err := lru.NewWithEvict(4096, func(_ int, file *os.File) {
 		err := file.Close()
 		if err != nil {
@@ -188,9 +187,10 @@ func downloadoor(index *moonproto.Index, baseUrl string, chunkChan chan<- Chunk,
 					}
 					offset += n
 				}
-			} else {
-				fmt.Printf("DUPE! %d\n", i)
 			}
+			/* else {
+				fmt.Printf("DUPE! %d\n", i)
+			}*/
 			if libChunk.FileIndex[i] < 0 {
 				continue
 			}
