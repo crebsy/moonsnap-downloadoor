@@ -139,6 +139,24 @@ func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache 
 		}
 		decompressedLength, err := lz4.UncompressBlock(chunk.Data, dst)
 		if err != nil {
+			debugF, _ := os.OpenFile(
+				fmt.Sprintf(
+					"/tmp/moonsnap-%d-%d.failed",
+					chunk.FileIndex,
+					chunk.FileOffset,
+				),
+				os.O_APPEND|os.O_WRONLY|os.O_CREATE,
+				0644,
+			)
+			debugF.WriteString(string(chunk.Data))
+			debugF.WriteString(
+				fmt.Sprintf("\n\nindex=%d, offset=%d, file=%s\n",
+					chunk.FileIndex,
+					chunk.FileOffset,
+					f.Name(),
+				),
+			)
+			debugF.Close()
 			panic(err)
 		}
 		bar.Add(decompressedLength)
