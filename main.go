@@ -165,7 +165,7 @@ func downloadoor(index *moonproto.Index, baseUrl string, chunkChan chan<- Chunk,
 					fmt.Sprintf(
 						"bytes=%d-%d",
 						libChunk.StartOffset,
-						libChunk.StartOffset+libChunk.Length,
+						libChunk.StartOffset+libChunk.Length-1,
 					),
 				},
 			},
