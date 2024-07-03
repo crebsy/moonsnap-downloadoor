@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -30,15 +31,26 @@ type Chunk struct {
 	Data       []byte
 }
 
+type SnapUrlResponse struct {
+	Url  string `json:"url"`
+	Hmac string `json:"hmac"`
+}
+
+var BASE_URL = os.Getenv("MOONSNAP_BASE_URL")
+var CHUNK_SIZE = 8192
+
 func main() {
-	indexFileName := os.Args[1]
+	snapKey := os.Args[1]
 	outDir := os.Args[2]
-	baseURL := os.Args[3]
-	chunkSize := 8192
+
+	snapUrlCreds := getSnapUrlCreds(snapKey, "/")
+	indexFileName := downloadIndexFile(snapUrlCreds)
+
 	file, err := os.Open(indexFileName)
 	if err != nil {
 		panic(err)
 	}
+	libUrlCreds := getSnapUrlCreds(snapKey, "/libs")
 	reader := bufio.NewReader(file)
 	index := moonproto.Index{}
 	err = protodelim.UnmarshalOptions{MaxSize: -1}.UnmarshalFrom(reader, &index)
@@ -64,7 +76,7 @@ func main() {
 	for range numThreads {
 		persistWg.Add(1)
 		go func() {
-			chunkSavor(&index, bar, fileCache, outDir, chunkSize, persistChan)
+			chunkSavor(&index, bar, fileCache, outDir, CHUNK_SIZE, persistChan)
 			persistWg.Done()
 		}()
 	}
@@ -72,7 +84,7 @@ func main() {
 	for range 4 {
 		downloadWg.Add(1)
 		go func() {
-			downloadoor(&index, baseURL, persistChan, downloadChan)
+			downloadoor(&index, libUrlCreds, persistChan, downloadChan)
 			downloadWg.Done()
 		}()
 	}
@@ -97,6 +109,66 @@ func main() {
 
 	bar.Close()
 	verifyFiles(&index, outDir)
+}
+
+func downloadIndexFile(snapUrlCreds SnapUrlResponse) string {
+	client := http.Client{}
+	u, err := url.Parse(snapUrlCreds.Url)
+	if err != nil {
+		panic(err)
+	}
+	res, err := client.Do(&http.Request{
+		Method: "GET",
+		Header: http.Header{
+			"Authorization": []string{snapUrlCreds.Hmac},
+		},
+		URL: u,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	f, err := os.Create("/tmp/moonsnap.index")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	_, err = io.Copy(f, res.Body)
+	if err != nil {
+		panic(err)
+	}
+	return f.Name()
+}
+
+func getSnapUrlCreds(snapKey string, path string) SnapUrlResponse {
+	client := http.Client{}
+	u, err := url.Parse(BASE_URL)
+	if err != nil {
+		panic(err)
+	}
+	u.Path = path
+	values := u.Query()
+	values.Set("snap_key", snapKey)
+	u.RawQuery = values.Encode()
+	res, err := client.Do(&http.Request{
+		Method: "GET",
+		URL:    u,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	var snapUrlResponse SnapUrlResponse
+	err = json.Unmarshal(body, &snapUrlResponse)
+	if err != nil {
+		panic(err)
+	}
+	return snapUrlResponse
 }
 
 func verifyFiles(index *moonproto.Index, outDir string) {
@@ -167,11 +239,11 @@ func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache 
 	}
 }
 
-func downloadoor(index *moonproto.Index, baseUrl string, chunkChan chan<- Chunk, downloadChan <-chan *moonproto.LibraryChunk) {
+func downloadoor(index *moonproto.Index, libUrlCreds SnapUrlResponse, chunkChan chan<- Chunk, downloadChan <-chan *moonproto.LibraryChunk) {
 	client := http.Client{}
 	for libChunk := range downloadChan {
 		libraryName := index.Libraries[libChunk.LibraryIndex].Name
-		urlPath := baseUrl + libraryName
+		urlPath := libUrlCreds.Url + libraryName
 		u, err := url.Parse(urlPath)
 		if err != nil {
 			panic(err)
@@ -179,6 +251,9 @@ func downloadoor(index *moonproto.Index, baseUrl string, chunkChan chan<- Chunk,
 		res, err := client.Do(&http.Request{
 			Method: "GET",
 			Header: http.Header{
+				"Authorization": []string{
+					libUrlCreds.Hmac,
+				},
 				"Range": []string{
 					fmt.Sprintf(
 						"bytes=%d-%d",
