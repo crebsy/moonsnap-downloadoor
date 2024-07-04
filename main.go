@@ -14,8 +14,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"sync"
+	"time"
 
 	"github.com/crebsy/moonsnap-downloadoor/moonproto"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -38,6 +38,7 @@ type SnapUrlResponse struct {
 
 var BASE_URL = os.Getenv("MOONSNAP_BASE_URL")
 var CHUNK_SIZE = 8192
+var MAX_RETRIES = 16
 
 func main() {
 	snapKey := os.Args[1]
@@ -171,9 +172,8 @@ func getSnapUrlCreds(snapKey string, path string) SnapUrlResponse {
 	return snapUrlResponse
 }
 
-func verifyFiles(index *moonproto.Index, outDir string) {
-	bar := progressbar.Default(int64(len(index.Files)), "verifying files")
-	for _, file := range index.Files {
+func verifyFilesWorker(fileChan <-chan *moonproto.Index_File, bar *progressbar.ProgressBar, outDir string, wg *sync.WaitGroup) {
+	for file := range fileChan {
 		if !fs.FileMode(file.FileMode).IsRegular() {
 			bar.Add(1)
 			continue
@@ -195,6 +195,25 @@ func verifyFiles(index *moonproto.Index, outDir string) {
 		f.Close()
 		bar.Add(1)
 	}
+
+	wg.Done()
+}
+
+func verifyFiles(index *moonproto.Index, outDir string) {
+	bar := progressbar.Default(int64(len(index.Files)), "verifying files")
+	fileChan := make(chan *moonproto.Index_File)
+	wg := sync.WaitGroup{}
+
+	for range 8 {
+		wg.Add(1)
+		go verifyFilesWorker(fileChan, bar, outDir, &wg)
+	}
+
+	for _, file := range index.Files {
+		fileChan <- file
+	}
+	close(fileChan)
+	wg.Wait()
 }
 
 func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache *lru.Cache[int, *os.File], outDir string, chunkSize int, chunkChan <-chan Chunk) {
@@ -248,6 +267,11 @@ func downloadoor(index *moonproto.Index, libUrlCreds SnapUrlResponse, chunkChan 
 		if err != nil {
 			panic(err)
 		}
+		retries := 0
+		localStartOffset := libChunk.StartOffset
+		localLength := libChunk.Length
+		fmt.Printf("start=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
+	retry:
 		res, err := client.Do(&http.Request{
 			Method: "GET",
 			Header: http.Header{
@@ -257,29 +281,48 @@ func downloadoor(index *moonproto.Index, libUrlCreds SnapUrlResponse, chunkChan 
 				"Range": []string{
 					fmt.Sprintf(
 						"bytes=%d-%d",
-						libChunk.StartOffset,
-						libChunk.StartOffset+libChunk.Length-1,
+						localStartOffset,
+						localStartOffset+localLength-1,
 					),
 				},
 			},
 			URL: u,
 		})
 		if err != nil {
+			retries += 1
+			if retries <= MAX_RETRIES {
+				time.Sleep(1 * time.Second)
+				goto retry
+			}
 			panic(err)
+		}
+		if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusPartialContent {
+			retries += 1
+			if retries <= MAX_RETRIES {
+				time.Sleep(1 * time.Second)
+				goto retry
+			}
+			panic(fmt.Sprintf("Download failed with status %d %s", res.StatusCode, res.Status))
 		}
 		var chunkBytes []byte
 		for i := range len(libChunk.FileIndex) {
 			if libChunk.FileLibraryChunkLength[i] > 0 {
-
 				chunkBytes = make([]byte, libChunk.FileLibraryChunkLength[i])
 				offset := 0
 				for offset < len(chunkBytes) {
 					n, err := res.Body.Read(chunkBytes[offset:])
 					if err != nil {
+						retries += 1
+						if retries <= MAX_RETRIES {
+							time.Sleep(1 * time.Second)
+							goto retry
+						}
 						panic(err)
 					}
 					offset += n
 				}
+				localStartOffset += uint64(offset)
+				localLength -= uint64(offset)
 			}
 			/* else {
 				fmt.Printf("DUPE! %d\n", i)
@@ -293,6 +336,7 @@ func downloadoor(index *moonproto.Index, libUrlCreds SnapUrlResponse, chunkChan 
 				Data:       chunkBytes,
 			}
 		}
+		fmt.Printf("end=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
 	}
 }
 
