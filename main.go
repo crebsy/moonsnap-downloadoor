@@ -69,7 +69,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	numThreads := runtime.GOMAXPROCS(0)
+	numThreads := 128
 	downloadChan := make(chan *moonproto.LibraryChunk)
 	persistChan := make(chan Chunk, 1024)
 	downloadWg := sync.WaitGroup{}
@@ -82,7 +82,7 @@ func main() {
 		}()
 	}
 
-	for range 4 {
+	for range 128 {
 		downloadWg.Add(1)
 		go func() {
 			downloadoor(&index, libUrlCreds, persistChan, downloadChan)
