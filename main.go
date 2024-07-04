@@ -270,7 +270,7 @@ func downloadoor(index *moonproto.Index, libUrlCreds SnapUrlResponse, chunkChan 
 		retries := 0
 		localStartOffset := libChunk.StartOffset
 		localLength := libChunk.Length
-		fmt.Printf("start=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
+		//fmt.Printf("start=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
 	retry:
 		res, err := client.Do(&http.Request{
 			Method: "GET",
@@ -336,7 +336,7 @@ func downloadoor(index *moonproto.Index, libUrlCreds SnapUrlResponse, chunkChan 
 				Data:       chunkBytes,
 			}
 		}
-		fmt.Printf("end=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
+		//fmt.Printf("end=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
 	}
 }
 
