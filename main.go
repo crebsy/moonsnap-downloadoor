@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/crebsy/moonsnap-downloadoor/moonproto"
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/minio/sha256-simd"
 	"github.com/pierrec/lz4"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/sys/unix"
