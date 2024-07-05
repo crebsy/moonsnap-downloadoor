@@ -32,33 +32,48 @@ type Chunk struct {
 }
 
 type SnapUrlResponse struct {
-	Url  string `json:"url"`
-	Hmac string `json:"hmac"`
+	Url       string `json:"url"`
+	Mac       string `json:"mac"`
+	Timestamp int    `json:"timestamp"`
+	FileName  string `json:"file_name"`
+	Curl      string `json:"curl"`
 }
 
-var BASE_URL = os.Getenv("MOONSNAP_BASE_URL")
+var API_BASE_URL = os.Getenv("MOONSNAP_API_BASE_URL")
+var SNAP_KEY = os.Getenv("MOONSNAP_SNAP_KEY")
+var OUT_DIR = os.Getenv("MOONSNAP_OUT_DIR")
+
 var CHUNK_SIZE = 8192
 var MAX_RETRIES = 16
 
 func main() {
-	snapKey := os.Args[1]
-	outDir := os.Args[2]
+	if len(API_BASE_URL) == 0 {
+		panic("Please provide a MOONSNAP_API_BASE_URL")
+	}
 
-	snapUrlCreds := getSnapUrlCreds(snapKey, "/")
-	indexFileName := downloadIndexFile(snapUrlCreds)
+	if len(SNAP_KEY) == 0 {
+		panic("Please provide a MOONSNAP_SNAP_KEY")
+	}
+
+	if len(OUT_DIR) == 0 {
+		OUT_DIR = "/tmp"
+	}
+
+	// get url for index
+	indexFileName := downloadIndexFile()
+	fmt.Println(indexFileName)
 
 	file, err := os.Open(indexFileName)
 	if err != nil {
 		panic(err)
 	}
-	libUrlCreds := getSnapUrlCreds(snapKey, "/libs")
 	reader := bufio.NewReader(file)
 	index := moonproto.Index{}
 	err = protodelim.UnmarshalOptions{MaxSize: -1}.UnmarshalFrom(reader, &index)
 	if err != nil {
 		panic(err)
 	}
-	totalBytes := createFileStructure(&index, outDir)
+	totalBytes := createFileStructure(&index, OUT_DIR)
 	bar := progressbar.DefaultBytes(int64(totalBytes), "downloading files")
 	fileCache, err := lru.NewWithEvict(4096, func(_ int, file *os.File) {
 		err := file.Close()
@@ -77,7 +92,7 @@ func main() {
 	for range numThreads {
 		persistWg.Add(1)
 		go func() {
-			chunkSavor(&index, bar, fileCache, outDir, CHUNK_SIZE, persistChan)
+			chunkSavor(&index, bar, fileCache, OUT_DIR, CHUNK_SIZE, persistChan)
 			persistWg.Done()
 		}()
 	}
@@ -85,7 +100,7 @@ func main() {
 	for range 128 {
 		downloadWg.Add(1)
 		go func() {
-			downloadoor(&index, libUrlCreds, persistChan, downloadChan)
+			downloadoor(&index, persistChan, downloadChan)
 			downloadWg.Done()
 		}()
 	}
@@ -109,10 +124,12 @@ func main() {
 	fileCache.Purge()
 
 	bar.Close()
-	verifyFiles(&index, outDir)
+	verifyFiles(&index, OUT_DIR)
 }
 
-func downloadIndexFile(snapUrlCreds SnapUrlResponse) string {
+func downloadIndexFile() string {
+retry_index:
+	snapUrlCreds := getSnapUrlCreds("")
 	client := http.Client{}
 	u, err := url.Parse(snapUrlCreds.Url)
 	if err != nil {
@@ -121,7 +138,8 @@ func downloadIndexFile(snapUrlCreds SnapUrlResponse) string {
 	res, err := client.Do(&http.Request{
 		Method: "GET",
 		Header: http.Header{
-			"Authorization": []string{snapUrlCreds.Hmac},
+			"Mac":       []string{snapUrlCreds.Mac},
+			"Timestamp": []string{fmt.Sprintf("%d", snapUrlCreds.Timestamp)},
 		},
 		URL: u,
 	})
@@ -129,7 +147,20 @@ func downloadIndexFile(snapUrlCreds SnapUrlResponse) string {
 		panic(err)
 	}
 	defer res.Body.Close()
-	f, err := os.Create("/tmp/moonsnap.index")
+	if res.StatusCode != http.StatusOK {
+		fmt.Printf("%+v\n", snapUrlCreds)
+		dfn := "/tmp/index.failed"
+		df, _ := os.Create(dfn)
+		defer df.Close()
+		_, err = io.Copy(df, res.Body)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("Bad status while downloading index: %s, dumped to %s\n", res.Status, dfn)
+		goto retry_index
+	}
+	f, err := os.Create("/tmp/" + snapUrlCreds.FileName)
 	if err != nil {
 		panic(err)
 	}
@@ -141,15 +172,17 @@ func downloadIndexFile(snapUrlCreds SnapUrlResponse) string {
 	return f.Name()
 }
 
-func getSnapUrlCreds(snapKey string, path string) SnapUrlResponse {
+func getSnapUrlCreds(fileName string) SnapUrlResponse {
 	client := http.Client{}
-	u, err := url.Parse(BASE_URL)
+	u, err := url.Parse(API_BASE_URL)
 	if err != nil {
 		panic(err)
 	}
-	u.Path = path
 	values := u.Query()
-	values.Set("snap_key", snapKey)
+	values.Set("snapKey", SNAP_KEY)
+	if len(fileName) > 0 {
+		values.Set("fileName", fileName)
+	}
 	u.RawQuery = values.Encode()
 	res, err := client.Do(&http.Request{
 		Method: "GET",
@@ -258,26 +291,27 @@ func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache 
 	}
 }
 
-func downloadoor(index *moonproto.Index, libUrlCreds SnapUrlResponse, chunkChan chan<- Chunk, downloadChan <-chan *moonproto.LibraryChunk) {
+func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-chan *moonproto.LibraryChunk) {
 	client := http.Client{}
 	for libChunk := range downloadChan {
-		libraryName := index.Libraries[libChunk.LibraryIndex].Name
-		urlPath := libUrlCreds.Url + libraryName
-		u, err := url.Parse(urlPath)
-		if err != nil {
-			panic(err)
-		}
+		libName := index.Libraries[libChunk.LibraryIndex].Name
 		retries := 0
 		localStartOffset := libChunk.StartOffset
 		localLength := libChunk.Length
 		//fmt.Printf("start=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
 	retry:
+		// get url for lib
+		libUrlCreds := getSnapUrlCreds(libName)
+		u, err := url.Parse(libUrlCreds.Url)
+		if err != nil {
+			panic(err)
+		}
+
 		res, err := client.Do(&http.Request{
 			Method: "GET",
 			Header: http.Header{
-				"Authorization": []string{
-					libUrlCreds.Hmac,
-				},
+				"Mac":       []string{libUrlCreds.Mac},
+				"Timestamp": []string{fmt.Sprintf("%d", libUrlCreds.Timestamp)},
 				"Range": []string{
 					fmt.Sprintf(
 						"bytes=%d-%d",
