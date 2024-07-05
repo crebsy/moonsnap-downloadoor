@@ -59,6 +59,11 @@ func main() {
 		OUT_DIR = "/tmp"
 	}
 
+	err := os.MkdirAll(OUT_DIR, 0755)
+	if err != nil {
+		panic(err)
+	}
+
 	// get url for index
 	indexFileName := downloadIndexFile()
 	fmt.Println(indexFileName)
@@ -160,7 +165,7 @@ retry_index:
 		fmt.Printf("Bad status while downloading index: %s, dumped to %s\n", res.Status, dfn)
 		goto retry_index
 	}
-	f, err := os.Create("/tmp/" + snapUrlCreds.FileName)
+	f, err := os.Create("/tmp/index")
 	if err != nil {
 		panic(err)
 	}
@@ -294,7 +299,8 @@ func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache 
 func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-chan *moonproto.LibraryChunk) {
 	client := http.Client{}
 	for libChunk := range downloadChan {
-		libName := index.Libraries[libChunk.LibraryIndex].Name
+		// contains already the url_prefix but missing the leading "/"
+		libName := "/" + index.Libraries[libChunk.LibraryIndex].Name
 		retries := 0
 		localStartOffset := libChunk.StartOffset
 		localLength := libChunk.Length
