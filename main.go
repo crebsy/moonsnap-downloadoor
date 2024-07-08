@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ var SNAP_KEY = os.Getenv("MOONSNAP_SNAP_KEY")
 var OUT_DIR = os.Getenv("MOONSNAP_OUT_DIR")
 
 var CHUNK_SIZE = 8192
-var MAX_RETRIES = 16
+var MAX_RETRIES = _getMaxRetries()
 
 func main() {
 	if len(API_BASE_URL) == 0 {
@@ -404,4 +405,17 @@ func createFileStructure(index *moonproto.Index, outDir string) int {
 		}
 	}
 	return totalBytes
+}
+
+func _getMaxRetries() int {
+	retries := 16
+	var err error
+	retryStr := os.Getenv("MOONSNAP_MAX_RETRIES")
+	if len(retryStr) > 0 {
+		retries, err = strconv.Atoi(retryStr)
+		if err != nil {
+			fmt.Printf("Cannot convert string to int %s", retryStr)
+		}
+	}
+	return retries
 }
