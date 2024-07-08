@@ -280,10 +280,10 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 		// contains already the url_prefix but missing the leading "/"
 		libName := "/" + index.Libraries[libChunk.LibraryIndex].Name
 		retries := 0
-		localStartOffset := libChunk.StartOffset
-		localLength := libChunk.Length
 		//fmt.Printf("start=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
 	retry:
+		localStartOffset := libChunk.StartOffset
+		localLength := libChunk.Length
 		// get url for lib
 		libUrlCreds := getSnapUrlCreds(libName)
 		u, err := url.Parse(libUrlCreds.Url)
