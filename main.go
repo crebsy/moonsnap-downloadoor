@@ -288,6 +288,11 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 		libUrlCreds := getSnapUrlCreds(libName)
 		u, err := url.Parse(libUrlCreds.Url)
 		if err != nil {
+			retries += 1
+			if retries <= MAX_RETRIES {
+				time.Sleep(1 * time.Second)
+				goto retry
+			}
 			panic(err)
 		}
 
