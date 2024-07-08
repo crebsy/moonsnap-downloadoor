@@ -255,7 +255,6 @@ func verifyFiles(index *moonproto.Index, outDir string) {
 }
 
 func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache *lru.Cache[int, *os.File], outDir string, chunkSize int, chunkChan <-chan Chunk) {
-	dst := make([]byte, chunkSize)
 	for chunk := range chunkChan {
 		f, ok := fileCache.Get(chunk.FileIndex)
 		if !ok {
@@ -266,31 +265,9 @@ func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache 
 			}
 			fileCache.Add(chunk.FileIndex, f)
 		}
-		decompressedLength, err := lz4.UncompressBlock(chunk.Data, dst)
-		if err != nil {
-			debugF, _ := os.OpenFile(
-				fmt.Sprintf(
-					"/tmp/moonsnap-%d-%d.failed",
-					chunk.FileIndex,
-					chunk.FileOffset,
-				),
-				os.O_APPEND|os.O_WRONLY|os.O_CREATE,
-				0644,
-			)
-			debugF.WriteString(string(chunk.Data))
-			debugF.WriteString(
-				fmt.Sprintf("\n\nindex=%d, offset=%d, file=%s\n",
-					chunk.FileIndex,
-					chunk.FileOffset,
-					f.Name(),
-				),
-			)
-			debugF.Close()
-			panic(err)
-		}
-		bar.Add(decompressedLength)
-		n, err := f.WriteAt(dst[0:decompressedLength], int64(chunk.FileOffset*chunkSize))
-		if err != nil || n != decompressedLength {
+		bar.Add(len(chunk.Data))
+		n, err := f.WriteAt(chunk.Data, int64(chunk.FileOffset*chunkSize))
+		if err != nil || n != len(chunk.Data) {
 			panic(err)
 		}
 	}
@@ -364,6 +341,16 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 				localStartOffset += uint64(offset)
 				localLength -= uint64(offset)
 			}
+			dst := make([]byte, CHUNK_SIZE)
+			decompressedLength, err := lz4.UncompressBlock(chunkBytes, dst)
+			if err != nil {
+				retries += 1
+				if retries <= MAX_RETRIES {
+					time.Sleep(1 * time.Second)
+					goto retry
+				}
+				panic(err)
+			}
 			/* else {
 				fmt.Printf("DUPE! %d\n", i)
 			}*/
@@ -373,7 +360,7 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 			chunkChan <- Chunk{
 				FileIndex:  int(libChunk.FileIndex[i]),
 				FileOffset: int(libChunk.FileOffset[i]),
-				Data:       chunkBytes,
+				Data:       dst[0:decompressedLength],
 			}
 		}
 		//fmt.Printf("end=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
