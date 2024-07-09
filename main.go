@@ -30,6 +30,8 @@ type Chunk struct {
 	FileIndex  int
 	FileOffset int
 	Data       []byte
+	RangeIndex int
+	ChunkIndex int
 }
 
 type SnapUrlResponse struct {
@@ -37,6 +39,11 @@ type SnapUrlResponse struct {
 	Authorization string `json:"authorization"`
 	FileName      string `json:"file_name"`
 	Curl          string `json:"curl"`
+}
+
+type DownloadItem struct {
+	chunk      *moonproto.LibraryChunk
+	rangeIndex int
 }
 
 var API_BASE_URL = os.Getenv("MOONSNAP_API_BASE_URL")
@@ -72,6 +79,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	resumeCtx := LoadResumeFile()
+
 	reader := bufio.NewReader(file)
 	index := moonproto.Index{}
 	err = protodelim.UnmarshalOptions{MaxSize: -1}.UnmarshalFrom(reader, &index)
@@ -90,27 +100,27 @@ func main() {
 		panic(err)
 	}
 	numThreads := 128
-	downloadChan := make(chan *moonproto.LibraryChunk)
+	downloadChan := make(chan DownloadItem)
 	persistChan := make(chan Chunk, 1024)
 	downloadWg := sync.WaitGroup{}
 	persistWg := sync.WaitGroup{}
 	for range numThreads {
 		persistWg.Add(1)
 		go func() {
-			chunkSavor(&index, bar, fileCache, OUT_DIR, CHUNK_SIZE, persistChan)
+			chunkSavor(&index, resumeCtx, bar, fileCache, OUT_DIR, CHUNK_SIZE, persistChan)
 			persistWg.Done()
 		}()
 	}
 
-	for range 128 {
+	for range numThreads {
 		downloadWg.Add(1)
 		go func() {
-			downloadoor(&index, persistChan, downloadChan)
+			downloadoor(&index, resumeCtx, persistChan, downloadChan)
 			downloadWg.Done()
 		}()
 	}
 
-	for {
+	for rangeIdx := 0; ; rangeIdx++ {
 		chunk := moonproto.LibraryChunk{}
 		err = protodelim.UnmarshalOptions{MaxSize: -1}.UnmarshalFrom(reader, &chunk)
 		if err != nil {
@@ -119,7 +129,29 @@ func main() {
 			}
 			panic(err)
 		}
-		downloadChan <- &chunk
+
+		resumeCtx.loadNextRange(rangeIdx, len(chunk.FileIndex))
+		if resumeCtx.isRangeDone(rangeIdx) {
+			sumBytes := int64(0)
+			for i := 0; i < len(chunk.FileIndex); i++ {
+				if chunk.FileIndex[i] < 0 {
+					continue
+				}
+				file := index.Files[chunk.FileIndex[i]]
+
+				remainingFileSizeAfterOffset := int64(file.FileSize - chunk.FileOffset[i])
+				maxChunkSize := int64(CHUNK_SIZE)
+				if maxChunkSize < remainingFileSizeAfterOffset {
+					sumBytes += maxChunkSize
+				} else {
+					sumBytes += remainingFileSizeAfterOffset
+				}
+			}
+			bar.Add64(sumBytes)
+			go resumeCtx.persist()
+			continue
+		}
+		downloadChan <- DownloadItem{&chunk, rangeIdx}
 	}
 	close(downloadChan)
 	downloadWg.Wait()
@@ -127,7 +159,7 @@ func main() {
 	persistWg.Wait()
 
 	fileCache.Purge()
-
+	resumeCtx.close()
 	bar.Close()
 	verifyFiles(&index, OUT_DIR)
 }
@@ -253,7 +285,7 @@ func verifyFiles(index *moonproto.Index, outDir string) {
 	wg.Wait()
 }
 
-func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache *lru.Cache[int, *os.File], outDir string, chunkSize int, chunkChan <-chan Chunk) {
+func chunkSavor(index *moonproto.Index, resumeCtx *ResumeCtx, bar *progressbar.ProgressBar, fileCache *lru.Cache[int, *os.File], outDir string, chunkSize int, chunkChan <-chan Chunk) {
 	for chunk := range chunkChan {
 		f, ok := fileCache.Get(chunk.FileIndex)
 		if !ok {
@@ -269,12 +301,15 @@ func chunkSavor(index *moonproto.Index, bar *progressbar.ProgressBar, fileCache 
 		if err != nil || n != len(chunk.Data) {
 			panic(err)
 		}
+
+		resumeCtx.setChunkDone(chunk.RangeIndex, chunk.ChunkIndex)
 	}
 }
 
-func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-chan *moonproto.LibraryChunk) {
+func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- Chunk, downloadChan <-chan DownloadItem) {
 	client := http.Client{}
-	for libChunk := range downloadChan {
+	for item := range downloadChan {
+		libChunk := item.chunk
 		// contains already the url_prefix but missing the leading "/"
 		libName := "/" + index.Libraries[libChunk.LibraryIndex].Name
 		retries := 0
@@ -282,6 +317,15 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 		localStartOffset := libChunk.StartOffset
 		localLength := libChunk.Length
 		localIdx := 0
+
+		alreadyDone := resumeCtx.getNumChunksDoneInRange(item.rangeIndex)
+		for ; localIdx < alreadyDone; localIdx++ {
+			len := libChunk.FileLibraryChunkLength[localIdx]
+			if len > 0 {
+				localStartOffset += len
+				localLength -= len
+			}
+		}
 
 	retry:
 		// get url for lib
@@ -346,6 +390,8 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 				}
 			}
 			if libChunk.FileIndex[localIdx] < 0 {
+				localStartOffset += uint64(len(chunkBytes))
+				localLength -= uint64(len(chunkBytes))
 				continue
 			}
 			dst := make([]byte, CHUNK_SIZE)
@@ -358,8 +404,6 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 				}
 				panic(err)
 			}
-			localStartOffset += uint64(len(chunkBytes))
-			localLength -= uint64(len(chunkBytes))
 			/* else {
 				fmt.Printf("DUPE! %d\n", i)
 			}*/
@@ -368,6 +412,13 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 				FileIndex:  int(libChunk.FileIndex[localIdx]),
 				FileOffset: int(libChunk.FileOffset[localIdx]),
 				Data:       dst[0:decompressedLength],
+				RangeIndex: item.rangeIndex,
+				ChunkIndex: localIdx,
+			}
+
+			if libChunk.FileLibraryChunkLength[localIdx] > 0 {
+				localStartOffset += uint64(len(chunkBytes))
+				localLength -= uint64(len(chunkBytes))
 			}
 		}
 		//fmt.Printf("end=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
