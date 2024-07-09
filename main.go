@@ -279,9 +279,11 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 		libName := "/" + index.Libraries[libChunk.LibraryIndex].Name
 		retries := 0
 		//fmt.Printf("start=%s, startOffset=%d\n", u.Path, libChunk.StartOffset)
-	retry:
 		localStartOffset := libChunk.StartOffset
 		localLength := libChunk.Length
+		localIdx := 0
+
+	retry:
 		// get url for lib
 		libUrlCreds := getSnapUrlCreds(libName)
 		u, err := url.Parse(libUrlCreds.Url)
@@ -325,9 +327,10 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 			panic(fmt.Sprintf("Download failed with status %d %s", res.StatusCode, res.Status))
 		}
 		var chunkBytes []byte
-		for i := range len(libChunk.FileIndex) {
-			if libChunk.FileLibraryChunkLength[i] > 0 {
-				chunkBytes = make([]byte, libChunk.FileLibraryChunkLength[i])
+
+		for ; localIdx < len(libChunk.FileIndex); localIdx++ {
+			if libChunk.FileLibraryChunkLength[localIdx] > 0 {
+				chunkBytes = make([]byte, libChunk.FileLibraryChunkLength[localIdx])
 				offset := 0
 				for offset < len(chunkBytes) {
 					n, err := res.Body.Read(chunkBytes[offset:])
@@ -341,8 +344,9 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 					}
 					offset += n
 				}
-				localStartOffset += uint64(offset)
-				localLength -= uint64(offset)
+			}
+			if libChunk.FileIndex[localIdx] < 0 {
+				continue
 			}
 			dst := make([]byte, CHUNK_SIZE)
 			decompressedLength, err := lz4.UncompressBlock(chunkBytes, dst)
@@ -354,15 +358,15 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 				}
 				panic(err)
 			}
+			localStartOffset += uint64(len(chunkBytes))
+			localLength -= uint64(len(chunkBytes))
 			/* else {
 				fmt.Printf("DUPE! %d\n", i)
 			}*/
-			if libChunk.FileIndex[i] < 0 {
-				continue
-			}
+
 			chunkChan <- Chunk{
-				FileIndex:  int(libChunk.FileIndex[i]),
-				FileOffset: int(libChunk.FileOffset[i]),
+				FileIndex:  int(libChunk.FileIndex[localIdx]),
+				FileOffset: int(libChunk.FileOffset[localIdx]),
 				Data:       dst[0:decompressedLength],
 			}
 		}
