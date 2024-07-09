@@ -33,11 +33,10 @@ type Chunk struct {
 }
 
 type SnapUrlResponse struct {
-	Url       string `json:"url"`
-	Mac       string `json:"mac"`
-	Timestamp int    `json:"timestamp"`
-	FileName  string `json:"file_name"`
-	Curl      string `json:"curl"`
+	Url           string `json:"url"`
+	Authorization string `json:"authorization"`
+	FileName      string `json:"file_name"`
+	Curl          string `json:"curl"`
 }
 
 var API_BASE_URL = os.Getenv("MOONSNAP_API_BASE_URL")
@@ -144,8 +143,7 @@ retry_index:
 	res, err := client.Do(&http.Request{
 		Method: "GET",
 		Header: http.Header{
-			"Mac":       []string{snapUrlCreds.Mac},
-			"Timestamp": []string{fmt.Sprintf("%d", snapUrlCreds.Timestamp)},
+			"Authorization": []string{snapUrlCreds.Authorization},
 		},
 		URL: u,
 	})
@@ -299,8 +297,7 @@ func downloadoor(index *moonproto.Index, chunkChan chan<- Chunk, downloadChan <-
 		res, err := client.Do(&http.Request{
 			Method: "GET",
 			Header: http.Header{
-				"Mac":       []string{libUrlCreds.Mac},
-				"Timestamp": []string{fmt.Sprintf("%d", libUrlCreds.Timestamp)},
+				"Authorization": []string{libUrlCreds.Authorization},
 				"Range": []string{
 					fmt.Sprintf(
 						"bytes=%d-%d",
