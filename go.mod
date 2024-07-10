@@ -11,6 +11,7 @@ require (
 require github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 
 require (
+	github.com/mbndr/figlet4go v0.0.0-20190224160619-d6cef5b186ea
 	github.com/minio/sha256-simd v1.0.1
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

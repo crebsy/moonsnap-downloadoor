@@ -54,6 +54,7 @@ var CHUNK_SIZE = 8192
 var MAX_RETRIES = _getMaxRetries()
 
 func main() {
+	fmt.Println(getBanner())
 	if len(API_BASE_URL) == 0 {
 		panic("Please provide a MOONSNAP_API_BASE_URL")
 	}
