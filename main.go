@@ -180,6 +180,10 @@ retry_index:
 			goto retry_index
 		}
 	}
+	if snapUrlCreds == nil {
+		panic(err)
+	}
+
 	client := http.Client{}
 	u, err := url.Parse(snapUrlCreds.Url)
 	if err != nil {
@@ -259,6 +263,10 @@ func getSnapUrlCreds(fileName string) (*SnapUrlResponse, error) {
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if res.StatusCode == http.StatusPaymentRequired {
+		return nil, errors.New(string(body))
 	}
 
 	snapUrlResponse := SnapUrlResponse{}
