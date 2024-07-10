@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -40,7 +39,7 @@ func (b Bitset) Get(idx int) bool {
 }
 
 func LoadResumeFile() *ResumeCtx {
-	resumeFileName := filepath.Join(OUT_DIR, ".moonsnap.resume")
+	resumeFileName := filepath.Join(OUT_DIR, ".moonsnap_resume")
 	_, err := os.Stat(resumeFileName)
 	var resumeFile *os.File
 	if err != nil && errors.Is(err, os.ErrNotExist) {
@@ -149,14 +148,10 @@ func (r *ResumeCtx) setChunkDone(rangeIdx int, chunkIdx int) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	entry := r.rangeEntries[rangeIdx]
-	/*if !ok {
-		for rIdx := range r.rangeEntries {
-			fmt.Println(rIdx)
-		}
-		panic("wooooooo")
-
-	}*/
+	entry, ok := r.rangeEntries[rangeIdx]
+	if !ok {
+		return
+	}
 	if !entry.chunkBitset.Get(chunkIdx) {
 		entry.chunkBitset.Set(chunkIdx)
 		entry.done++
@@ -189,25 +184,23 @@ func (r *ResumeCtx) persist() {
 		panic(err)
 	}
 
-	/*
-		dropRangeIndexes := []int{}
-		for rangeIdx, entry := range r.rangeEntries {
-			r.resumeFile.Seek(entry.fileOffset, io.SeekStart)
-			_, err := io.Copy(r.resumeFile, bytes.NewReader(entry.chunkBitset))
-			if err != nil {
-				panic(err)
-			}
-
-			/*if entry.done >= entry.length {
-				dropRangeIndexes = append(dropRangeIndexes, rangeIdx)
-			}
+	dropRangeIndexes := []int{}
+	for rangeIdx, entry := range r.rangeEntries {
+		r.resumeFile.Seek(entry.fileOffset, io.SeekStart)
+		_, err := io.Copy(r.resumeFile, bytes.NewReader(entry.chunkBitset))
+		if err != nil {
+			panic(err)
 		}
 
-		for rangeIdx := range dropRangeIndexes {
-			fmt.Printf("Dropping rangeIdx %d\n", rangeIdx)
-			delete(r.rangeEntries, rangeIdx)
+		if entry.done >= entry.length {
+			dropRangeIndexes = append(dropRangeIndexes, rangeIdx)
 		}
-	*/
+	}
+
+	for rangeIdx := range dropRangeIndexes {
+		//fmt.Printf("Dropping rangeIdx %d\n", rangeIdx)
+		delete(r.rangeEntries, rangeIdx)
+	}
 
 	r.resumeFile.Seek(offset, io.SeekStart)
 }
@@ -215,7 +208,6 @@ func (r *ResumeCtx) persist() {
 func (r *ResumeCtx) close() {
 	r.persist()
 
-	fmt.Println("close()")
 	err := r.resumeFile.Close()
 	if err != nil {
 		panic(err)

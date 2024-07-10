@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -72,9 +73,11 @@ func main() {
 		panic(err)
 	}
 
-	// get url for index
-	indexFileName := downloadIndexFile()
-	fmt.Println(indexFileName)
+	indexFileName := filepath.Join(OUT_DIR, ".moonsnap_index")
+	_, err = os.Stat(indexFileName)
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		downloadIndexFile(indexFileName)
+	}
 
 	file, err := os.Open(indexFileName)
 	if err != nil {
@@ -165,14 +168,24 @@ func main() {
 	verifyFiles(&index, OUT_DIR)
 }
 
-func downloadIndexFile() string {
+func downloadIndexFile(indexFileName string) string {
+	retries := 0
+	bar := progressbar.Default(int64(100), "downloading index file")
 retry_index:
-	snapUrlCreds := getSnapUrlCreds("")
+	snapUrlCreds, err := getSnapUrlCreds("")
+	if err != nil {
+		retries += 1
+		if retries <= MAX_RETRIES {
+			time.Sleep(1 * time.Second)
+			goto retry_index
+		}
+	}
 	client := http.Client{}
 	u, err := url.Parse(snapUrlCreds.Url)
 	if err != nil {
 		panic(err)
 	}
+	bar.Add(25)
 	res, err := client.Do(&http.Request{
 		Method: "GET",
 		Header: http.Header{
@@ -181,11 +194,16 @@ retry_index:
 		URL: u,
 	})
 	if err != nil {
+		retries += 1
+		if retries <= MAX_RETRIES {
+			time.Sleep(1 * time.Second)
+			goto retry_index
+		}
 		panic(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		fmt.Printf("%+v\n", snapUrlCreds)
+		//fmt.Printf("%+v\n", snapUrlCreds)
 		dfn := "/tmp/index.failed"
 		df, _ := os.Create(dfn)
 		defer df.Close()
@@ -194,10 +212,16 @@ retry_index:
 			panic(err)
 		}
 
-		fmt.Printf("Bad status while downloading index: %s, dumped to %s\n", res.Status, dfn)
-		goto retry_index
+		//fmt.Printf("Bad status while downloading index: %s, dumped to %s\n", res.Status, dfn)
+		retries += 1
+		if retries <= MAX_RETRIES {
+			time.Sleep(1 * time.Second)
+			goto retry_index
+		}
 	}
-	f, err := os.Create("/tmp/index")
+	bar.Add(50)
+
+	f, err := os.Create(indexFileName)
 	if err != nil {
 		panic(err)
 	}
@@ -206,14 +230,17 @@ retry_index:
 	if err != nil {
 		panic(err)
 	}
+	bar.Add(25)
+	bar.Close()
+
 	return f.Name()
 }
 
-func getSnapUrlCreds(fileName string) SnapUrlResponse {
+func getSnapUrlCreds(fileName string) (*SnapUrlResponse, error) {
 	client := http.Client{}
 	u, err := url.Parse(API_BASE_URL)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	values := u.Query()
 	values.Set("snapKey", SNAP_KEY)
@@ -226,20 +253,20 @@ func getSnapUrlCreds(fileName string) SnapUrlResponse {
 		URL:    u,
 	})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	var snapUrlResponse SnapUrlResponse
+	snapUrlResponse := SnapUrlResponse{}
 	err = json.Unmarshal(body, &snapUrlResponse)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return snapUrlResponse
+	return &snapUrlResponse, nil
 }
 
 func verifyFilesWorker(fileChan <-chan *moonproto.Index_File, bar *progressbar.ProgressBar, outDir string, wg *sync.WaitGroup) {
@@ -330,7 +357,15 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 
 	retry:
 		// get url for lib
-		libUrlCreds := getSnapUrlCreds(libName)
+		libUrlCreds, err := getSnapUrlCreds(libName)
+		if err != nil {
+			retries += 1
+			if retries <= MAX_RETRIES {
+				time.Sleep(1 * time.Second)
+				goto retry
+			}
+			panic(err)
+		}
 		u, err := url.Parse(libUrlCreds.Url)
 		if err != nil {
 			retries += 1
@@ -429,10 +464,10 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 func createFileStructure(index *moonproto.Index, outDir string) int {
 	totalBytes := 0
 	for _, file := range index.Files {
-		fmt.Println(file)
+		//fmt.Println(file)
 		totalBytes += int(file.FileSize)
 		if file.FileMode&uint64(fs.ModeSymlink) > 0 {
-			fmt.Println(file.FileLinkTarget)
+			//fmt.Println(file.FileLinkTarget)
 
 			newLinkTarget, err := filepath.Abs(path.Join(outDir, *file.FileLinkTarget))
 			if err != nil {
@@ -451,9 +486,9 @@ func createFileStructure(index *moonproto.Index, outDir string) int {
 
 		//TODO handle 0-byte files (e.g. LOCK)
 		if file.FileSize > 0 {
-			err = unix.Fallocate(int(f.Fd()), 0, 0, int64(file.FileSize))
+			err := unix.Fallocate(int(f.Fd()), 0, 0, int64(file.FileSize))
 			if err != nil {
-				fmt.Printf("path=%s, size=%d\n", file.FilePath, file.FileSize)
+				fmt.Printf("Error with: path=%s, size=%d\n", file.FilePath, file.FileSize)
 				panic(err)
 			}
 		}
