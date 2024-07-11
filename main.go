@@ -364,6 +364,9 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 		}
 
 	retry:
+		if localLength == 0 {
+			continue
+		}
 		// get url for lib
 		libUrlCreds, err := getSnapUrlCreds(libName)
 		if err != nil {
@@ -374,7 +377,12 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 			}
 			panic(err)
 		}
-		u, err := url.Parse(libUrlCreds.Url)
+
+		req, err := http.NewRequest(
+			"GET",
+			libUrlCreds.Url,
+			nil,
+		)
 		if err != nil {
 			retries += 1
 			if retries <= MAX_RETRIES {
@@ -384,20 +392,16 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 			panic(err)
 		}
 
-		res, err := client.Do(&http.Request{
-			Method: "GET",
-			Header: http.Header{
-				"Authorization": []string{libUrlCreds.Authorization},
-				"Range": []string{
-					fmt.Sprintf(
-						"bytes=%d-%d",
-						localStartOffset,
-						localStartOffset+localLength-1,
-					),
-				},
-			},
-			URL: u,
-		})
+		req.Header["Authorization"] = []string{libUrlCreds.Authorization}
+		req.Header["Range"] = []string{
+			fmt.Sprintf(
+				"bytes=%d-%d",
+				localStartOffset,
+				localStartOffset+localLength-1,
+			),
+		}
+
+		res, err := client.Do(req)
 		if err != nil {
 			retries += 1
 			if retries <= MAX_RETRIES {
@@ -407,6 +411,8 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 			panic(err)
 		}
 		if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusPartialContent {
+			//fmt.Printf("%+v\n", req)
+			//fmt.Printf("%d, %d\n", localLength, localStartOffset)
 			retries += 1
 			if retries <= MAX_RETRIES {
 				time.Sleep(1 * time.Second)
@@ -422,7 +428,7 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 				offset := 0
 				for offset < len(chunkBytes) {
 					n, err := res.Body.Read(chunkBytes[offset:])
-					if err != nil {
+					if err != nil && err != io.EOF {
 						retries += 1
 						if retries <= MAX_RETRIES {
 							time.Sleep(1 * time.Second)
@@ -441,6 +447,8 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 			dst := make([]byte, CHUNK_SIZE)
 			decompressedLength, err := lz4.UncompressBlock(chunkBytes, dst)
 			if err != nil {
+				//fmt.Printf("%+v\n", req)
+				//fmt.Printf("%d, %d\n", localLength, localStartOffset)
 				retries += 1
 				if retries <= MAX_RETRIES {
 					time.Sleep(1 * time.Second)
