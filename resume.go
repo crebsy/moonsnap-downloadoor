@@ -148,10 +148,8 @@ func (r *ResumeCtx) setChunkDone(rangeIdx int, chunkIdx int) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	entry, ok := r.rangeEntries[rangeIdx]
-	if !ok {
-		return
-	}
+	entry := r.rangeEntries[rangeIdx]
+
 	if !entry.chunkBitset.Get(chunkIdx) {
 		entry.chunkBitset.Set(chunkIdx)
 		entry.done++
@@ -178,7 +176,10 @@ func (r *ResumeCtx) persist() {
 		panic(err)
 	}
 
-	r.resumeFile.Seek(0, io.SeekStart)
+	_, err = r.resumeFile.Seek(0, io.SeekStart)
+	if err != nil {
+		panic(err)
+	}
 	_, err = io.Copy(r.resumeFile, bytes.NewReader(r.ranges))
 	if err != nil {
 		panic(err)
@@ -186,7 +187,10 @@ func (r *ResumeCtx) persist() {
 
 	dropRangeIndexes := []int{}
 	for rangeIdx, entry := range r.rangeEntries {
-		r.resumeFile.Seek(entry.fileOffset, io.SeekStart)
+		_, err = r.resumeFile.Seek(entry.fileOffset, io.SeekStart)
+		if err != nil {
+			panic(err)
+		}
 		_, err := io.Copy(r.resumeFile, bytes.NewReader(entry.chunkBitset))
 		if err != nil {
 			panic(err)
@@ -197,12 +201,18 @@ func (r *ResumeCtx) persist() {
 		}
 	}
 
-	for rangeIdx := range dropRangeIndexes {
-		//fmt.Printf("Dropping rangeIdx %d\n", rangeIdx)
+	for _, rangeIdx := range dropRangeIndexes {
+		/*if rangeIdx == 0 {
+			entry := r.rangeEntries[rangeIdx]
+			fmt.Printf("Dropping rangeIdx %d, entry.done=%d, entry.length=%d\n", rangeIdx, entry.done, entry.length)
+		}*/
 		delete(r.rangeEntries, rangeIdx)
 	}
 
-	r.resumeFile.Seek(offset, io.SeekStart)
+	_, err = r.resumeFile.Seek(offset, io.SeekStart)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (r *ResumeCtx) close() {
