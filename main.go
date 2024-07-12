@@ -364,9 +364,6 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 		}
 
 	retry:
-		if localLength == 0 {
-			continue
-		}
 		// get url for lib
 		libUrlCreds, err := getSnapUrlCreds(libName)
 		if err != nil {

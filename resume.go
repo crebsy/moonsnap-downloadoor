@@ -28,7 +28,7 @@ type ResumeCtx struct {
 
 const RANGE_BITSET_SIZE = 1024 * 1024 / 8
 
-const AUTOSAVE_AFTER_N_CHUNKS = 8192
+const AUTOSAVE_AFTER_N_CHUNKS = 128
 
 func (b Bitset) Set(idx int) {
 	b[idx/8] |= 1 << (idx % 8)
@@ -171,6 +171,10 @@ func (r *ResumeCtx) persist() {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
+	if r.resumeFile == nil {
+		return
+	}
+
 	offset, err := r.resumeFile.Seek(0, io.SeekCurrent)
 	if err != nil {
 		panic(err)
@@ -218,8 +222,11 @@ func (r *ResumeCtx) persist() {
 func (r *ResumeCtx) close() {
 	r.persist()
 
+	r.lock.Lock()
 	err := r.resumeFile.Close()
 	if err != nil {
 		panic(err)
 	}
+	r.resumeFile = nil
+	r.lock.Unlock()
 }
