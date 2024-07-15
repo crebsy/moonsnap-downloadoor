@@ -56,22 +56,24 @@ var CHUNK_SIZE = 8192
 var MAX_RETRIES = _getMaxRetries()
 
 func main() {
+	fmt.Println(getBanner())
+
 	apiBaseUrl := os.Getenv("MOONSNAP_API_BASE_URL")
 	if len(apiBaseUrl) > 0 {
 		API_BASE_URL = apiBaseUrl
 	}
+	if len(SNAP_KEY) == 0 && len(os.Args) > 1 {
+		SNAP_KEY = os.Args[1]
+	}
 
-	fmt.Println(getBanner())
-	if len(API_BASE_URL) == 0 {
-		panic("Please provide a MOONSNAP_API_BASE_URL")
+	if len(OUT_DIR) == 0 && len(os.Args) > 2 {
+		OUT_DIR = os.Args[2]
+	} else {
+		OUT_DIR = "."
 	}
 
 	if len(SNAP_KEY) == 0 {
 		panic("Please provide a MOONSNAP_SNAP_KEY")
-	}
-
-	if len(OUT_DIR) == 0 {
-		OUT_DIR = "/tmp"
 	}
 
 	err := os.MkdirAll(OUT_DIR, 0755)
