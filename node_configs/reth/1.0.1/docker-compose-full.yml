@@ -1,0 +1,22 @@
+version: "3.7"
+
+networks:
+  default:
+    name: moonsnap_default
+
+services:
+  reth:
+    image: ghcr.io/paradigmxyz/reth:v1.0.1
+    command: |
+      node
+        --full
+        --authrpc.addr 0.0.0.0
+        --http"
+        --http.addr 0.0.0.0
+        --http.api all
+        --http.corsdomain *
+    ports:
+      - "8545:8545"
+    volumes:
+      - /data/reth:/root/.local/share/reth
+    restart: always

@@ -1,0 +1,29 @@
+version: "3.7"
+
+networks:
+  default:
+    name: moonsnap_default
+
+services:
+  erigon:
+    image: thorax/erigon:12c2732ad92733a6a6aae9db7259062182799674
+    command: |
+      --chain=mainnet
+      --datadir=/data
+      --http
+      --http.addr=0.0.0.0
+      --http.vhosts=*
+      --http.api=eth,erigon,engine,web3,net,trace,txpool,debug,ots,overlay
+      --authrpc.addr=0.0.0.0
+      --authrpc.vhosts=*
+      --maxpeers=20
+      --torrent.download.rate=300mb
+      --db.read.concurrency=1024
+      --prune=hrtc
+      --externalcl
+    user: 1001:1001
+    ports:
+      - "8545:8545"
+    volumes:
+      - /data/erigon:/data
+    restart: always

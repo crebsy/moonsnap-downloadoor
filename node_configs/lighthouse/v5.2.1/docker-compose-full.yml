@@ -1,0 +1,23 @@
+version: "3.7"
+
+networks:
+  default:
+    name: moonsnap_default
+
+services:
+  lighthouse:
+    image: sigp/lighthouse:v5.2.1
+    command: |
+      lighthouse beacon_node
+        --checkpoint-sync-url=https://beaconstate.info
+        --debug-level=info
+        --execution-endpoint=http://<EXECUTION_URL>:8551
+        --execution-jwt=/root/.lighthouse/jwt.hex
+        --http
+        --http-address=0.0.0.0
+    ports:
+      - "5052:5052"
+    volumes:
+      - /data/lighthouse:/root/.lighthouse
+      - /data/jwt.hex:/root/.lighthouse/jwt.hex
+    restart: always
