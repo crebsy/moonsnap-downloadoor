@@ -273,7 +273,7 @@ func getSnapUrlCreds(fileName string) (*SnapUrlResponse, error) {
 		return nil, err
 	}
 
-	if res.StatusCode == http.StatusPaymentRequired {
+	if res.StatusCode != http.StatusOK {
 		return nil, errors.New(string(body))
 	}
 
