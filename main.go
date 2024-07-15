@@ -47,7 +47,8 @@ type DownloadItem struct {
 	rangeIndex int
 }
 
-var API_BASE_URL = os.Getenv("MOONSNAP_API_BASE_URL")
+var API_BASE_URL = "https://api.moonsnap.xyz"
+
 var SNAP_KEY = os.Getenv("MOONSNAP_SNAP_KEY")
 var OUT_DIR = os.Getenv("MOONSNAP_OUT_DIR")
 
@@ -55,6 +56,11 @@ var CHUNK_SIZE = 8192
 var MAX_RETRIES = _getMaxRetries()
 
 func main() {
+	apiBaseUrl := os.Getenv("MOONSNAP_API_BASE_URL")
+	if len(apiBaseUrl) > 0 {
+		API_BASE_URL = apiBaseUrl
+	}
+
 	fmt.Println(getBanner())
 	if len(API_BASE_URL) == 0 {
 		panic("Please provide a MOONSNAP_API_BASE_URL")
