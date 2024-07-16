@@ -6,7 +6,7 @@ This is a tool for snappy bootstrapping of new full and archive nodes.
 It [saves > 97%](#sync-comparison) of the time required to sync a new node from scratch.
 
 ## Usage
-1. Get a `SNAP_KEY` from https://warpcast.com/crebsy/CAST_ID
+1. Get a `SNAP_KEY` from https://warpcast.com/crebsy/0xc021a0cf
 2. Compile or download the binary from https://dl.moonsnap.xyz/moonsnap
 3. Download the snap to your infra with max speed 🚀
 4. Start your node and let it sync only a small diff to reach the head of the chain
