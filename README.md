@@ -32,8 +32,8 @@ You can also build the binary yourself:
 ```
 git clone https://github.com/crebsy/moonsnap-downloadoor.git
 cd moonsnap-downloadoor
-go build .
-./moonsnap-downloadoor <YOUR_SNAP_KEY> <YOUR_OUT_DIR>
+go build -o moonsnap
+./moonsnap <YOUR_SNAP_KEY> <YOUR_OUT_DIR>
 ```
 
 ## Performance
