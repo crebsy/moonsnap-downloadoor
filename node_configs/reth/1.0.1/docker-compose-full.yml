@@ -11,7 +11,7 @@ services:
       node
         --full
         --authrpc.addr 0.0.0.0
-        --http"
+        --http
         --http.addr 0.0.0.0
         --http.api all
         --http.corsdomain *
