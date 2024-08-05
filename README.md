@@ -3,7 +3,7 @@
 <br clear="left"/>
 
 This is a tool for snappy bootstrapping of new full and archive nodes.
-It [saves > 97%](#sync-comparison) of the time required to sync a new node from scratch.
+It [saves between 66% and 99.2%](#sync-comparison) of the time required to sync a new node from scratch.
 
 ## Usage
 1. Get a `SNAP_KEY` from https://warpcast.com/crebsy/0xc021a0cf
