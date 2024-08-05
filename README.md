@@ -40,9 +40,11 @@ go build -o moonsnap
 ### Sync comparison
 | Node             | sync time | with moonsnap | time saving | snap size |
 | ---------------- | --------- | ------------- | ----------- | --------- |
-| erigon 3 full    | ~36 hours | ~55 minutes   | 97.5%       | 978 GB    |
-| reth 1.0.1 full  | ~48 hours | ~70 minutes   | 97.5%       | 1.1 TB    |
-| lighthouse 5.2.1 | ~17 hours | ~8 minutes    | 99.2%       | 140 GB    |
+| [erigon 3 archive](https://github.com/erigontech/erigon/commit/7931ce92ccbe1be5c16c183962cdbaa916aaeb14) | ~12 hours | ~4 hours      | 66%         | 1.6 TB    |
+| [erigon 3 full](https://github.com/erigontech/erigon/commit/12c2732ad92733a6a6aae9db7259062182799674)    | ~36 hours | ~55 minutes   | 97.5%       | 978 GB    |
+| [reth 1.0.3 archive](https://github.com/paradigmxyz/reth/releases/tag/v1.0.3) | ~72 hours | ~3 hours     | 96%       | 2.2 TB    |
+| [reth 1.0.1 full](https://github.com/paradigmxyz/reth/releases/tag/v1.0.1)   | ~48 hours | ~70 minutes   | 97.5%     | 1.1 TB    |
+| lighthouse 5.2.1   | ~17 hours | ~8 minutes    | 99.2%     | 140 GB    |
 
 ### Hardware specs
 network: 2.5Gbps
