@@ -442,6 +442,14 @@ func downloadoor(index *moonproto.Index, resumeCtx *ResumeCtx, chunkChan chan<- 
 						panic(err)
 					}
 					offset += n
+					if err == io.EOF && offset < len(chunkBytes) {
+						retries += 1
+						if retries <= MAX_RETRIES {
+							time.Sleep(1 * time.Second)
+							goto retry
+						}
+						panic(err)
+					}
 				}
 			}
 			if libChunk.FileIndex[localIdx] < 0 {
